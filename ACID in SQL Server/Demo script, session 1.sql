@@ -1,3 +1,5 @@
+--- Not so fast.
+THROW
 /*
 
     STOP: THIS SCRIPT WILL NOT WORK IN AZURE SQL DATABASE
