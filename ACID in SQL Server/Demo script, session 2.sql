@@ -72,7 +72,7 @@ FROM dbo.DirtyReads
 ORDER BY Account;
 
 
---- 3. (UPDATE)
+--- 4. (UPDATE)
 UPDATE dbo.DirtyReads
 SET Balance=Balance-100
 WHERE Account='Brent';
