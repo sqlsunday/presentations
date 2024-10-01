@@ -12,9 +12,8 @@ THROW
           will not perform as expected.
 
 */
-SET NOCOUNT ON;
 
-
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED; -- SQL Server default
 
 
 
@@ -31,7 +30,7 @@ SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 --- Scenario 2:
-SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+--SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 
 
@@ -56,6 +55,9 @@ SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 SELECT Account, Balance
 FROM dbo.DirtyReads
 ORDER BY Account;
+
+
+
 
 
 
@@ -130,13 +132,13 @@ SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 
 
 
+
+--- 1.
 BEGIN TRANSACTION;
 
-    --- 1.
     SELECT Account, Balance
     FROM dbo.NonRepeatable
     WHERE Account='Brent';
-
 
 
 
@@ -181,14 +183,14 @@ SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 
 
 
+
+
+--- 1.
 BEGIN TRANSACTION;
 
-    --- 1.
     SELECT Account, Balance
     FROM dbo.PhantomReads
     WHERE Account BETWEEN 'B' AND 'D';
-
-
 
 
 
@@ -199,6 +201,7 @@ BEGIN TRANSACTION;
     WHERE Account BETWEEN 'B' AND 'D';
 
 ROLLBACK TRANSACTION;
+
 
 
 
@@ -238,6 +241,7 @@ WHILE (@@TRANCOUNT>0) ROLLBACK TRANSACTION;
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 
+--- 0b.
 BEGIN TRANSACTION;
 
 
@@ -253,9 +257,6 @@ BEGIN TRANSACTION;
     UPDATE dbo.Deadlocks
     SET Balance=Balance+100
     WHERE Account='Brent';
-
-
-
 
 
 
@@ -322,15 +323,23 @@ SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 
 
 
+
+
+
+
+
+
+
 --- The reconstructed MERGE:
 
---- 1.
-DECLARE @Account varchar(100)='Brian 2',
+--- 1.2
+DECLARE @Account varchar(100)='Brian, too',
         @Balance numeric(12, 2)=0.00;
  
 BEGIN TRANSACTION;
  
-    IF (EXISTS (SELECT NULL FROM dbo.Deadlocks WHERE Account=@Account)) BEGIN;
+    IF (EXISTS (SELECT NULL FROM dbo.Deadlocks
+                WHERE Account=@Account)) BEGIN;
  
 
         WAITFOR DELAY '00:00:10';
@@ -391,6 +400,9 @@ WHILE (@@TRANCOUNT>0) ROLLBACK TRANSACTION;
 
 SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
 
+
+
+--- 0b.
 BEGIN TRANSACTION;
 
 
@@ -398,22 +410,25 @@ BEGIN TRANSACTION;
 
 
 
-
-
-
-
-
-    --- 3.
+    --- 2.
     SELECT Account, Balance
     FROM dbo.UpdateConflicts
     WHERE Account='Daniel';
 
+
+
+
+
+
     --- 4.
+    SELECT Account, Balance
+    FROM dbo.UpdateConflicts
+    WHERE Account='Daniel';
+
+    --- 5.
     UPDATE dbo.UpdateConflicts
     SET Balance=99999
     WHERE Account='Daniel';
 
 
-
 COMMIT TRANSACTION;
-

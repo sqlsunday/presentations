@@ -12,8 +12,7 @@ THROW
           will not perform as expected.
 
 */
-SET NOCOUNT ON;
-
+ALTER DATABASE CURRENT SET ALLOW_SNAPSHOT_ISOLATION OFF; -- Reset the database
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED; -- SQL Server default
 
 
@@ -58,7 +57,9 @@ VALUES ('Alexander', 100.00),
 
 
 
---- 2.
+--- 2. Let's transfer money from Brent
+---    to Cathrine:
+
 BEGIN TRANSACTION;
 
     UPDATE dbo.DirtyReads
@@ -105,6 +106,7 @@ ROLLBACK TRANSACTION;
 
 
 
+
 -------------------------------------------------
 ----
 ---- Non-repeatable reads
@@ -139,7 +141,7 @@ VALUES ('Alexander', 100.00),
 
 --- 2.
 UPDATE dbo.NonRepeatable
-SET Balance=0.00
+SET Balance=Balance+100.00
 WHERE Account='Brent';
 
 
@@ -186,13 +188,14 @@ VALUES ('Alexander', 100.00),
 
 
 
+
+
 --- 2.
 INSERT INTO dbo.PhantomReads
-VALUES ('Clï¿½udio', 1000.00);
+VALUES ('Cláudio', 1000.00);
 
 
-
-
+-- DELETE FROM dbo.PhantomReads WHERE Account='Cláudio';
 
 
 
@@ -238,6 +241,7 @@ VALUES ('Alexander', 100.00),
 SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
 
 
+--- 0a.
 BEGIN TRANSACTION;
 
 
@@ -258,9 +262,6 @@ BEGIN TRANSACTION;
     UPDATE dbo.Deadlocks
     SET Balance=Balance+100
     WHERE Account='Alexander';
-
-
-
 
 
 
@@ -300,20 +301,27 @@ SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 
 
 
---- The original MERGE:
-MERGE INTO dbo.Deadlocks AS dl
-USING (
-    SELECT 'Brian' AS Account, 0.00 AS Balance
-    ) AS x ON dl.Account=x.Account
+/*
 
-WHEN NOT MATCHED BY TARGET THEN
-    INSERT (Account, Balance)
-    VALUES (x.Account, x.Balance)
 
-WHEN MATCHED THEN
-    UPDATE
-    SET dl.Balance=x.Balance;
 
+    --- The original MERGE:
+    MERGE INTO dbo.Deadlocks AS dl WITH (HOLDLOCK)
+    USING (
+        SELECT 'Brian' AS Account, 0.00 AS Balance
+        ) AS x ON dl.Account=x.Account
+
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (Account, Balance)
+        VALUES (x.Account, x.Balance)
+
+    WHEN MATCHED THEN
+        UPDATE
+        SET dl.Balance=x.Balance;
+
+
+
+*/
 
 
 
@@ -324,13 +332,14 @@ DELETE FROM dbo.Deadlocks WHERE Account LIKE 'Brian%';
 
 --- The reconstructed MERGE:
 
---- 1.
+--- 1.1
 DECLARE @Account varchar(100)='Brian',
         @Balance numeric(12, 2)=0.00;
  
 BEGIN TRANSACTION;
  
-    IF (EXISTS (SELECT NULL FROM dbo.Deadlocks WHERE Account=@Account)) BEGIN;
+    IF (EXISTS (SELECT NULL FROM dbo.Deadlocks
+                WHERE Account=@Account)) BEGIN;
  
 
         WAITFOR DELAY '00:00:10';
@@ -391,6 +400,9 @@ ALTER DATABASE CURRENT SET ALLOW_SNAPSHOT_ISOLATION ON;
 
 SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
 
+
+
+--- 0a.
 BEGIN TRANSACTION;
 
     --- 1.
@@ -398,7 +410,11 @@ BEGIN TRANSACTION;
     FROM dbo.UpdateConflicts
     WHERE Account='Daniel';
 
-    --- 2.
+
+
+
+
+    --- 3.
     UPDATE dbo.UpdateConflicts
     SET Balance=0
     WHERE Account='Daniel';
@@ -414,5 +430,5 @@ BEGIN TRANSACTION;
 
 
 
---- 5.
+--- 6.
 COMMIT TRANSACTION;
