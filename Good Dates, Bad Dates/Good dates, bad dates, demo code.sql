@@ -248,10 +248,12 @@ EXECUTE sys.sp_describe_first_result_set N'
 
 --- THE SOLUTION: You can get a predictable conversion by using CONVERT() with a style:
 
-SELECT CONVERT(date, '10/11/12'    ) AS [Default conversion],
-	   CONVERT(date, '10/11/12',  1) AS [US],
-	   CONVERT(date, '10/11/12',  3) AS [British/French],
-	   CONVERT(date, '10/11/12', 11) AS [Japan];
+DECLARE @s varchar(100)='10/11/12';
+
+SELECT CONVERT(date, @s    ) AS [Default conversion],
+	   CONVERT(date, @s,  1) AS [US],
+	   CONVERT(date, @s,  3) AS [British/French],
+	   CONVERT(date, @s, 11) AS [Japan];
 
 --- ... and back:
 
@@ -268,6 +270,8 @@ SELECT CONVERT(varchar(100), @ts     ) AS [Default conversion],
 
 
 --- Use the length of the varchar/nvarchar to truncate the output as needed:
+
+DECLARE @ts datetime2(3)={ts '2010-11-12 13:14:15.678'};
 
 SELECT CONVERT(varchar(10), @ts, 121) AS [to varchar(10)],
 	   CONVERT(varchar(16), @ts, 121) AS [to varchar(16)],
@@ -315,7 +319,7 @@ SELECT TRY_CONVERT(date, '2026-13-01', 121);
 
 -------------------------------------------------------------------
 ---
---- 3. Different functions, different types, same results:
+--- .. Different functions, different types, same results:
 ---
 -------------------------------------------------------------------
 
@@ -324,9 +328,9 @@ SELECT CURRENT_DATE        AS [CURRENT_DATE],		 -- date
        CURRENT_TIMESTAMP   AS [CURRENT_TIMESTAMP],	 -- datetime
        GETDATE()		   AS [GETDATE()],			 -- datetime
        GETUTCDATE()	       AS [GETUTCDATE()],		 -- datetime
-       SYSDATETIME()	   AS [SYSDATETIME()],		 -- datetime2
-       SYSUTCDATETIME()    AS [SYSUTCDATETIME()],	 -- datetime2
-       SYSDATETIMEOFFSET() AS [SYSDATETIMEOFFSET()]; -- datetimeoffset
+       SYSDATETIME()	   AS [SYSDATETIME()],		 -- datetime2(7)
+       SYSUTCDATETIME()    AS [SYSUTCDATETIME()],	 -- datetime2(7)
+       SYSDATETIMEOFFSET() AS [SYSDATETIMEOFFSET()]; -- datetimeoffset(7)
 
 
 
@@ -511,15 +515,14 @@ WHERE DATETRUNC(month, Issued_date)='2011-12-01';
 
 
 --- BONUS CONTENT: Check out the plans for the
---- above three queries; YEAR() and MONTH() do
---- not retain the sort order of the index, so
---- they generate a Hash Match, whereas DATE_BUCKET()
---- and DATETRUNC() do, and thus result in a
---- Stream Aggregate.
+--- above three queries; YEAR() and MONTH() generate
+--- different estimates than DATE_BUCKET() and
+--- DATETRUNC(), and thus result in a
+--- Stream Aggregate instead of a Hash Match.
 ---
---- However, in the end, they still perform an
---- Index Scan, so they don't solve our
---- sargability problem here.
+--- However, in the end, they all still perform an
+--- Index Scan, so this doesn't solve our sargability
+--- problem here.
 
 
 
@@ -600,17 +603,18 @@ SELECT SYSDATETIME(),
 
 --- Change the offset (+/- hours)
 
-SELECT SYSDATETIMEOFFSET() AS [Local],
-       SWITCHOFFSET(SYSDATETIMEOFFSET(), '-07:00') AS [Pacific],
+SELECT SWITCHOFFSET(SYSDATETIMEOFFSET(), '-07:00') AS [Pacific],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '-04:00') AS [Eastern],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+00:00') AS [UTC],
+       SYSDATETIMEOFFSET() AS [Local],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+01:00') AS [CET],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+05:30') AS [Delhi],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+08:00') AS [Singapore],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+10:00') AS [Sydney],
        SWITCHOFFSET(SYSDATETIMEOFFSET(), '+12:00') AS [Auckland]
 
---- Change the offset to a named timezone
+--- Same thing, but using a named timezone
+--- (with correct daylight savings)
 
 SELECT SYSDATETIMEOFFSET() AT TIME ZONE 'Pacific Standard Time' AS [Pacific],
        SYSDATETIMEOFFSET() AT TIME ZONE 'Eastern Standard Time' AS [Eastern],
@@ -666,6 +670,8 @@ SET DATEFIRST 7; -- Week starts on Sundays:  US, Canada, Brazil, Japan, Israel
 
 --- Weeks start on DATEFIRST day:
 
+SELECT @@DATEFIRST AS [@@DATEFIRST];
+
 SELECT x.Date_column,
 	   DATENAME(weekday, x.Date_column) AS [Weekday],
 
@@ -674,7 +680,7 @@ SELECT x.Date_column,
 	   DATE_BUCKET(week, 1, x.Date_column) AS [Week datebucket *]
 FROM GENERATE_SERIES(0, 365, 1) AS gs
 CROSS APPLY (VALUES (DATEADD(day, gs.[value], CAST('2027-01-01' AS date)))) AS x(Date_column)
-ORDER BY x.Date_column
+ORDER BY x.Date_column;
 
 --- *) Note how DATE_BUCKET(week) "starts" with 1900-01-01, which is
 --- a Monday and thus always aligns to ISO weeks.
@@ -964,7 +970,7 @@ FROM #Random_dates;
 --- Last day of the month:
 ---------------------------------------
 
---- DON'T:
+--- JUST DON'T:
 SELECT Date_column,
        DATEADD(day, -1,
            DATEADD(month, 1,
@@ -1061,19 +1067,20 @@ FROM #Random_dates;
 
 --- HOW TO FIND THE CORRECT AGE:
 
---- 1. DATE_BUCKET sorts the datetime column into buckets
+--- 1. DATE_BUCKET sorts the datetime column into buckets.
 SELECT Datetime2_column,
-       DATE_BUCKET(year, 1, Datetime2_column)
-FROM #Random_dates
+       DATE_BUCKET(year, 1, Datetime2_column) AS [Bucket]
+FROM #Random_dates;
 
---- 2. Set the start date/time of the bucket to SYSDATETIME()
+--- 2. ... and set the start date/time of the bucket to SYSDATETIME().
+---    Now we effectively have the most recent birthday.
 SELECT Datetime2_column,
-       DATE_BUCKET(year, 1, Datetime2_column, SYSDATETIME())
-FROM #Random_dates
+       DATE_BUCKET(year, 1, Datetime2_column, SYSDATETIME()) AS [Bucket with offset]
+FROM #Random_dates;
 
 --- 3. Count the years between the bucket and SYSDATETIME()
 SELECT Datetime2_column,
-       DATE_BUCKET(year, 1, Datetime2_column, SYSDATETIME()),
+       DATE_BUCKET(year, 1, Datetime2_column, SYSDATETIME()) AS [Bucket with offset],
 
        -- The correct age calculation:
        DATEDIFF(year,
@@ -1083,7 +1090,7 @@ SELECT Datetime2_column,
        -- ... or, expressed differently:
        YEAR(SYSDATETIME())-
        YEAR(DATE_BUCKET(year, 1, Datetime2_column, SYSDATETIME())) AS Age
-FROM #Random_dates
+FROM #Random_dates;
 
 
 
@@ -1115,6 +1122,14 @@ FROM #Random_dates;
 SELECT AVG(Issued_date)
 FROM Tickets.Parking_Violations
 
+
+--- SORRY, STILL NO:
+SELECT CAST(AVG(CAST(Issued_date AS float)) AS datetime2(0))
+FROM Tickets.Parking_Violations
+
+--- NOT PRETTY:
+SELECT CAST(AVG(CAST(CAST(Issued_date AS datetime) AS float)) AS datetime)
+FROM Tickets.Parking_Violations
 
 
 --- MAYBE:
